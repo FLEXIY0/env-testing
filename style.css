@@ -197,3 +197,31 @@ BODY.edit-mode .edit-controls { display: flex; }
 .modal input:focus { border-color: var(--primary); }
 .modal-buttons { display: flex; gap: 10px; justify-content: center; }
 .hidden { display: none !important; }
+
+/* --- Медиазапросы для смартфона --- */
+@media (max-width: 600px) {
+    body {
+        font-size: 16px;
+    }
+    header {
+        padding: 1rem;
+    }
+    main {
+        padding: 0 1rem 2rem;
+    }
+    .post {
+        margin-bottom: 2.5rem;
+    }
+    .post-content {
+        font-size: 1.05rem;
+    }
+    .edit-controls {
+        flex-wrap: wrap;
+    }
+    button {
+        padding: 0.5rem 1rem;
+    }
+    #mode-label {
+        font-size: 0.65rem;
+    }
+}

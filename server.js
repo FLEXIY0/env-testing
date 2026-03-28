@@ -120,6 +120,21 @@ app.post('/api/posts/:id/revert', (req, res) => {
     res.json(post);
 });
 
+// 5. Удаление поста
+app.delete('/api/posts/:id', (req, res) => {
+    const { id } = req.params;
+    let posts = readData();
+    const postIndex = posts.findIndex(p => p.id === parseInt(id));
+
+    if (postIndex === -1) {
+        return res.status(404).json({ error: 'Post not found' });
+    }
+
+    posts.splice(postIndex, 1);
+    writeData(posts);
+    res.json({ message: 'Post deleted' });
+});
+
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
 });

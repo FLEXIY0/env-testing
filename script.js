@@ -311,6 +311,27 @@ async function revertToOriginal(id) {
     }
 }
 
+async function deletePost(id) {
+    if (!confirm("Вы уверены, что хотите НАВСЕГДА удалить эту запись?")) return;
+
+    if (IS_LOCAL) {
+        const response = await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
+        if (response.ok) await loadPosts();
+    } else {
+        try {
+            const index = posts.findIndex(p => p.id === id);
+            if (index !== -1) {
+                posts.splice(index, 1);
+                await pushToGithub(posts);
+                alert("Пост удален! Обновление на сайте займет пару минут.");
+            }
+            renderPosts();
+        } catch(e) {
+            alert("Ошибка удаления в GitHub. Проверьте токен.");
+        }
+    }
+}
+
 // --- Рендеринг ---
 
 function renderPosts() {
@@ -365,7 +386,8 @@ function renderPosts() {
 
             <div class="edit-controls" id="controls-${post.id}">
                 <button class="btn-primary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="startEditing(${post.id})">Редактировать</button>
-                ${isEdited ? `<button class="btn-danger" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="revertToOriginal(${post.id})">Вернуться к 1 версии</button>` : ''}
+                ${isEdited ? `<button class="btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem; color: var(--text-color);" onclick="revertToOriginal(${post.id})">Вернуться к 1 версии</button>` : ''}
+                <button class="btn-danger" style="margin-left: auto; padding: 0.4rem 0.8rem; font-size: 0.8rem; border-color: var(--danger);" onclick="deletePost(${post.id})">Удалить</button>
             </div>
         `;
 
