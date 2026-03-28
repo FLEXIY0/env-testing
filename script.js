@@ -1,6 +1,11 @@
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const API_URL = IS_LOCAL ? 'http://localhost:3000/api/posts' : 'posts.json';
 
+const GITHUB_REPO = 'FLEXIY0/myblog';
+const GITHUB_PATH = 'posts.json';
+const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_PATH}`;
+let githubToken = localStorage.getItem('myblog_github_token') || '';
+
 const PASS_PHRASE = "все будет хорошо";
 let isEditMode = false;
 let posts = [];
@@ -10,16 +15,13 @@ const modeLabel = document.getElementById('mode-label');
 const passwordModal = document.getElementById('password-modal');
 const passwordInput = document.getElementById('password-input');
 const passwordError = document.getElementById('password-error');
+const logoutBtnWrapper = document.getElementById('logout-container');
 const newPostText = document.getElementById('new-post-text');
 const postsContainer = document.getElementById('posts-container');
 const toggleContainer = document.querySelector('.toggle-container');
 
 window.onload = () => {
-    // Прячем тумблер редактирования, если мы не на локальном сервере (GitHub Pages)
-    if (!IS_LOCAL) {
-        toggleContainer.style.display = 'none';
-    }
-
+    // В отличие от прошлого раза, теперь тумблер редактирования виден ВСЕГДА!
     loadPosts();
     modeToggle.checked = false;
 };
@@ -35,9 +37,29 @@ modeToggle.addEventListener('change', (e) => {
 });
 
 function openPasswordModal() {
-    passwordModal.style.display = 'flex';
-    passwordInput.value = '';
     passwordError.style.display = 'none';
+    
+    if (IS_LOCAL) {
+        document.getElementById('modal-title').textContent = 'Локальный режим (Компьютер)';
+        document.getElementById('modal-desc').textContent = 'Введите кодовую фразу для редактирования:';
+        passwordInput.placeholder = 'Кодовая фраза';
+        logoutBtnWrapper.style.display = 'none';
+        passwordInput.value = '';
+    } else {
+        document.getElementById('modal-title').textContent = 'Режим Автора (GitHub API)';
+        document.getElementById('modal-desc').textContent = 'Введите ваш GitHub Personal Access Token (classic, с галкой repo):';
+        passwordInput.placeholder = 'ghp_...';
+        
+        if (githubToken) {
+            passwordInput.value = githubToken;
+            logoutBtnWrapper.style.display = 'block';
+        } else {
+            passwordInput.value = '';
+            logoutBtnWrapper.style.display = 'none';
+        }
+    }
+
+    passwordModal.style.display = 'flex';
     passwordInput.focus();
 }
 
@@ -45,16 +67,52 @@ function closePasswordModal() {
     passwordModal.style.display = 'none';
 }
 
+function logoutGithub() {
+    githubToken = '';
+    localStorage.removeItem('myblog_github_token');
+    passwordInput.value = '';
+    logoutBtnWrapper.style.display = 'none';
+}
+
 passwordInput.addEventListener('keypress', function (e) {
     if (e.key === 'Enter') verifyPassword();
 });
 
-function verifyPassword() {
-    if (passwordInput.value.toLowerCase().trim() === PASS_PHRASE) {
-        closePasswordModal();
-        setEditMode(true);
+function showError(msg) {
+    passwordError.textContent = msg;
+    passwordError.style.display = 'block';
+}
+
+async function verifyPassword() {
+    passwordError.style.display = 'none';
+
+    if (IS_LOCAL) {
+        if (passwordInput.value.toLowerCase().trim() === PASS_PHRASE) {
+            closePasswordModal();
+            setEditMode(true);
+        } else {
+            showError("Неверная фраза!");
+        }
     } else {
-        passwordError.style.display = 'block';
+        const token = passwordInput.value.trim();
+        if (!token) return showError("Токен не введен");
+
+        // Проверяем токен через GitHub
+        try {
+            const res = await fetch('https://api.github.com/user', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                githubToken = token;
+                localStorage.setItem('myblog_github_token', token);
+                closePasswordModal();
+                setEditMode(true);
+            } else {
+                showError("Неверный токен GitHub или нет прав.");
+            }
+        } catch(e) {
+            showError("Ошибка сети. Проверьте интернет.");
+        }
     }
 }
 
@@ -63,7 +121,7 @@ function setEditMode(enable) {
     modeToggle.checked = enable;
     if (enable) {
         document.body.classList.add('edit-mode');
-        modeLabel.textContent = 'Редактирование';
+        modeLabel.textContent = IS_LOCAL ? 'Редактирование' : 'GitHub Edit';
     } else {
         document.body.classList.remove('edit-mode');
         modeLabel.textContent = 'Просмотр';
@@ -85,18 +143,23 @@ function escapeHtml(unsafe) {
          .replace(/'/g, "&#039;");
 }
 
-// --- Запросы к API ---
+function encodeBase64Unicode(str) {
+    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g,
+        function toSolidBytes(match, p1) {
+            return String.fromCharCode('0x' + p1);
+    }));
+}
+
+// --- Запросы ---
 
 async function loadPosts() {
     try {
-        // Добавляем timestamp чтобы браузер не кэшировал старый JSON
         const urlToFetch = IS_LOCAL ? API_URL : `${API_URL}?t=${Date.now()}`;
         const response = await fetch(urlToFetch);
         if (response.ok) {
             posts = await response.json();
             renderPosts();
         } else if (!IS_LOCAL && response.status === 404) {
-             // Файл posts.json еще не создан в репозитории
              posts = [];
              renderPosts();
         }
@@ -105,13 +168,44 @@ async function loadPosts() {
     }
 }
 
+async function pushToGithub(newPostsData) {
+    let sha = null;
+    try {
+        const getRes = await fetch(GITHUB_API_URL, {
+            headers: { 'Authorization': `Bearer ${githubToken}` }
+        });
+        if (getRes.ok) {
+            const data = await getRes.json();
+            sha = data.sha;
+        }
+    } catch (e) {
+        console.log("Возможно, файл еще не создан");
+    }
+
+    const content = encodeBase64Unicode(JSON.stringify(newPostsData, null, 2));
+    const body = {
+        message: "Автоматическое обновление поста с телефона",
+        content: content
+    };
+    if (sha) body.sha = sha;
+
+    const putRes = await fetch(GITHUB_API_URL, {
+        method: 'PUT',
+        headers: { 
+            'Authorization': `Bearer ${githubToken}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+    });
+
+    if (!putRes.ok) throw new Error();
+}
+
 async function addPost() {
-    if (!IS_LOCAL) return alert("Редактирование доступно только на localhost");
-    
     const text = newPostText.value.trim();
     if (!text) return;
 
-    try {
+    if (IS_LOCAL) {
         const response = await fetch(API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -121,52 +215,101 @@ async function addPost() {
             newPostText.value = '';
             await loadPosts();
         }
-    } catch (error) {
-        console.error("Ошибка сохранения:", error);
+    } else {
+        try {
+            const newPost = {
+                id: Date.now(),
+                createdAt: new Date().toISOString(),
+                updatedAt: null,
+                versions: [{ text, timestamp: new Date().toISOString() }]
+            };
+            posts.unshift(newPost);
+            
+            newPostText.value = 'Обновляю github...';
+            newPostText.disabled = true;
+            
+            await pushToGithub(posts);
+            
+            newPostText.value = '';
+            newPostText.disabled = false;
+            renderPosts();
+            alert("Пост сохранён на GitHub! На сайте он появится через 1-2 минуты (особенность GitHub Pages).");
+        } catch(e) {
+            alert("Ошибка сохранения в GitHub. Проверьте токен.");
+            newPostText.disabled = false;
+        }
     }
 }
 
 async function saveEditing(id) {
-    if (!IS_LOCAL) return alert("Редактирование доступно только на localhost");
-
     const newText = document.getElementById(`edit-text-${id}`).value.trim();
-    if (!newText) {
-        alert("Текст поста не может быть пустым.");
-        return;
-    }
+    if (!newText) return alert("Текст пуст.");
 
-    try {
+    if (IS_LOCAL) {
         const response = await fetch(`${API_URL}/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text: newText })
         });
-        
-        if (response.ok) {
-            await loadPosts();
+        if (response.ok) await loadPosts();
+    } else {
+        try {
+            const post = posts.find(p => p.id === id);
+            if (post) {
+                const latestVersion = post.versions[post.versions.length - 1].text;
+                if (latestVersion !== newText) {
+                    post.versions.push({
+                        text: newText,
+                        timestamp: new Date().toISOString()
+                    });
+                    post.updatedAt = new Date().toISOString();
+                    
+                    const btn = document.querySelector(`#edit-form-${id} .btn-success`);
+                    const oldTextBtn = btn.textContent;
+                    btn.textContent = 'Сохранение...';
+                    
+                    await pushToGithub(posts);
+                    
+                    btn.textContent = oldTextBtn;
+                    alert("Редактирование сохранено! Страница обновится через пару минут.");
+                }
+            }
+            renderPosts();
+        } catch(e) {
+            alert("Ошибка сохранения в GitHub.");
         }
-    } catch (error) {
-        console.error("Ошибка сохранения редактирования:", error);
     }
 }
 
 async function revertToOriginal(id) {
-    if (!IS_LOCAL) return alert("Редактирование доступно только на localhost");
+    if (!confirm("Вы уверены, что хотите вернуть этот пост к первоначальной версии?")) return;
 
-    if (confirm("Вы уверены, что хотите вернуть этот пост к первоначальной версии? Текущая версия будет сохранена в истории, но отображаться будет первая версия.")) {
+    if (IS_LOCAL) {
+        const response = await fetch(`${API_URL}/${id}/revert`, { method: 'POST' });
+        if (response.ok) await loadPosts();
+    } else {
         try {
-            const response = await fetch(`${API_URL}/${id}/revert`, {
-                method: 'POST'
-            });
-            if (response.ok) {
-                await loadPosts();
+            const post = posts.find(p => p.id === id);
+            if (post && post.versions.length > 1) {
+                const originalText = post.versions[0].text;
+                const latestVersion = post.versions[post.versions.length - 1].text;
+                if (latestVersion !== originalText) {
+                    post.versions.push({
+                        text: originalText,
+                        timestamp: new Date().toISOString(),
+                        isRevert: true
+                    });
+                    post.updatedAt = new Date().toISOString();
+                    await pushToGithub(posts);
+                    alert("Версия восстановлена!");
+                }
             }
-        } catch (error) {
-            console.error("Ошибка отката:", error);
+            renderPosts();
+        } catch(e) {
+            alert("Ошибка сохранения в GitHub.");
         }
     }
 }
-
 
 // --- Рендеринг ---
 
@@ -189,11 +332,12 @@ function renderPosts() {
         
         const isEdited = post.versions.length > 1 && currentText !== originalText;
 
-        // Генерируем ссылки истории
         let historyLinks = '';
         if (post.versions.length > 1) {
             post.versions.forEach((ver, idx) => {
-                historyLinks += `<a href="#" onclick="showVersion(${post.id}, ${idx}); return false;" style="color: var(--primary); text-decoration: none; margin-right: 10px;">v${idx + 1} (${formatDate(ver.timestamp)})</a> `;
+                const isCurrent = (idx === currentVersionIndex);
+                const color = isCurrent ? 'white' : 'var(--primary)';
+                historyLinks += `<a href="#" onclick="showVersion(${post.id}, ${idx}); return false;" style="color: ${color}; text-decoration: none; margin-right: 15px; display: inline-block;">v${idx + 1} (${formatDate(ver.timestamp)})</a>`;
             });
         }
 
@@ -213,7 +357,7 @@ function renderPosts() {
                 </div>
             </div>
             
-            ${historyLinks ? `<div style="margin-top: 1rem; font-size: 0.85rem; border-top: 1px solid var(--card-border); padding-top: 0.5rem; color: var(--text-muted);"><b style="color: white">История версий (нажмите для просмотра):</b><br>${historyLinks}</div>` : ''}
+            ${historyLinks ? `<div style="margin-top: 1rem; font-size: 0.85rem; border-top: 1px solid var(--card-border); padding-top: 0.5rem; color: var(--text-muted);"><b style="color: white; margin-bottom: 5px; display: inline-block;">История версий (нажмите для просмотра):</b><br>${historyLinks}</div>` : ''}
 
             <div class="post-footer">
                 <span>${post.updatedAt ? '✏️ Последнее изменение: ' + formatDate(post.updatedAt) : ''}</span>
@@ -234,10 +378,8 @@ function showVersion(postId, versionIndex) {
     const post = posts.find(p => p.id === postId);
     if (!post || !post.versions[versionIndex]) return;
     
-    // Меняем текст поста инлайн
     document.getElementById(`content-${postId}`).innerHTML = escapeHtml(post.versions[versionIndex].text);
     
-    // Если мы в edit mode, обновим и textarea, чтобы было что редактировать (при желании)
     const textarea = document.getElementById(`edit-text-${postId}`);
     if (textarea) {
         textarea.value = post.versions[versionIndex].text;

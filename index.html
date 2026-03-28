@@ -35,15 +35,18 @@
     <!-- Модальное окно ввода пароля -->
     <div class="modal-overlay" id="password-modal">
         <div class="glass modal">
-            <h2>Режим редактирования</h2>
-            <p>Введите кодовую фразу для доступа:</p>
-            <input type="password" id="password-input" placeholder="Кодовая фраза">
+            <h2 id="modal-title">Режим редактирования</h2>
+            <p id="modal-desc">Введите кодовую фразу для доступа:</p>
+            <input type="password" id="password-input" placeholder="...">
             <div id="password-error" style="color: var(--danger); font-size: 0.875rem; margin-bottom: 1rem; display: none;">
-                Неверная фраза!
+                Неверный ввод!
             </div>
             <div class="modal-buttons">
                 <button class="btn-secondary" style="background: rgba(255,255,255,0.1);" onclick="closePasswordModal()">Отмена</button>
                 <button class="btn-primary" onclick="verifyPassword()">Войти</button>
+            </div>
+            <div id="logout-container" style="margin-top: 15px; display: none;">
+                <button class="btn-danger" style="font-size: 0.8rem; padding: 0.4rem 0.8rem;" onclick="logoutGithub()">Забыть токен</button>
             </div>
         </div>
     </div>
