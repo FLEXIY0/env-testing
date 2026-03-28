@@ -163,7 +163,7 @@ function escapeHtml(unsafe) {
 
 function parseMarkdownImages(text) {
     // Регулярка для ![alt](url)
-    const regex = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g;
+    const regex = /!\[([^\]]*)\]\(([^\s)]+)\)/g;
     return text.replace(regex, `<img src="$2" alt="$1" style="max-width: 100%; height: auto; display: block; border-radius: 4px; margin: 1.5rem 0;" loading="lazy">`);
 }
 
